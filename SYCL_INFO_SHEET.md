@@ -1,0 +1,8 @@
+# OpenSYCL Problem Sheet
+- [ ] ``exclusive_scan_over_group()`` primitive does not work for nvcxx currently since it uses ``__shfl_down()`` which seems to do nothing.
+- [ ] ``nvc++`` Terminates with very limited information when using any of the following data types: ``uint8_t``,  ``unsigned char`` and c-style arrays of any type.
+- [ ] Attempting to submit a kernel with a group size which exceeds the maximum group size supported by the device will cause the program to fail silently, with no error message or exception thrown. The user must check the maximum group size supported by the device and ensure that the group size they submit is less than or equal to this value.
+- [ ] Kernel attributes are not supported in OpenSYCL even though they are part of the SYCL 1.2.1 specification. This means that e.g. the following attributes are not supported: ``reqd_work_group_size``, ``work_group_size_hint``, ``vec_len_hint``, ``work_group_size`
+- [ ] Global variables are not accessible in device code (e.g. in a kernel) in OpenSYCL. But neither the syclcc compiler, the backend nvc++ compiler nor the SYCL runtime will throw an error if a global variable is used in device code.
+- [ ] Initialization of any variable in structures created in device code must be done inside the constructor of the structure, otherwise the variables are simply not initialized.
+- [ ] ``sycl::buffer`` objects are very peculiar about their construction. If embedded within an object 
