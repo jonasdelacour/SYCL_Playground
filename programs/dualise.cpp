@@ -92,7 +92,7 @@ void sequential_print(group<1> cta, T data) {
 }
 
 int main(int argc, char** argv){
-    int N, batch_size, Nf;
+    size_t N, batch_size, Nf;
     constexpr int MaxDegree = 6;
     if (argc != 3) {
         std::cerr << "Usage: " << argv[0] << " <N> <Batch-Size>\n";
@@ -104,7 +104,7 @@ int main(int argc, char** argv){
     Nf = N/2 + 2;
 
     // Selects a GPU device and creates a queue with in-order execution, equivalent to CUDA stream
-    queue Q(gpu_selector{}, property::queue::in_order()); 
+    queue Q(gpu_selector_v, property::queue::in_order()); 
     //queue Q(cpu_selector{});
 
     auto device = Q.get_device();
@@ -131,7 +131,7 @@ int main(int argc, char** argv){
         Q.memcpy(face_degrees_dev, face_degrees.data(), face_degrees.size()*sizeof(uint8_t));
         Q.wait_and_throw();
     }
-    catch (cl::sycl::exception const& e) {
+    catch (sycl::exception const& e) {
         std::cout << "Caught asynchronous SYCL exception during memcpy:\n"
                 << e.what() << std::endl;
         std::terminate();
@@ -154,7 +154,7 @@ int main(int argc, char** argv){
             DeviceDualGraph<MaxDegree, UINT_TYPE> FD(cached_neighbours.get_pointer(), cached_degrees.get_pointer());
             UINT_TYPE cannon_arcs[MaxDegree]; memset(cannon_arcs, UINT_TYPE_MAX, MaxDegree*sizeof(UINT_TYPE));
             UINT_TYPE rep_count  = 0;
-            cta.barrier();
+            nditem.barrier(access::fence_space::local_space);
             if (thid < Nf){
                 for (UINT_TYPE i = 0; i < FD.face_degrees[thid]; i++){
                     auto cannon_arc = FD.get_cannonical_triangle_arc(thid, FD.dual_neighbours[thid*MaxDegree + i]);
@@ -164,7 +164,7 @@ int main(int argc, char** argv){
                     }
                 }
             }
-            cta.barrier();
+            nditem.barrier(access::fence_space::local_space);
 
             UINT_TYPE scan_result = exclusive_scan_over_group(cta, rep_count, plus<UINT_TYPE>{});
 
@@ -177,7 +177,7 @@ int main(int argc, char** argv){
                     }    
                 }
             }
-            cta.barrier();
+            nditem.barrier(access::fence_space::local_space);
 
             if (thid < Nf){
                 for (UINT_TYPE i = 0; i < FD.face_degrees[thid]; i++){
@@ -187,7 +187,7 @@ int main(int argc, char** argv){
                     }
                 }
             }
-            cta.barrier();
+            nditem.barrier(access::fence_space::local_space);
 //
             auto [u, v] = arc_list[thid];
            /*  if(bid == 0){

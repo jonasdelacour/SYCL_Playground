@@ -50,19 +50,19 @@ T custom_reduce(const sycl::group<1>& cta, T val, T* sdata, AssocOperator Aop)
     return Aop(sdata[0], sdata[1]); */
 
 
-    sycl::group_barrier(cta);
-    sdata[cta.get_local_linear_id()] = val;
-    sycl::group_barrier(cta);
-    for (int i = cta.get_local_linear_range() / 2; i > 0; i >>= 1)
-    {
-        if (cta.get_local_linear_id() < i && cta.get_local_linear_id() + i < cta.get_local_linear_range()){
-            sdata[cta.get_local_linear_id()] = Aop(sdata[cta.get_local_linear_id()],sdata[cta.get_local_linear_id() + i]);
-        }
-        sycl::group_barrier(cta);
-    }    
-    T result = sdata[0];
+    //sycl::group_barrier(cta);
+    //sdata[cta.get_local_linear_id()] = val;
+    //sycl::group_barrier(cta);
+    //for (int i = cta.get_local_linear_range() / 2; i > 0; i >>= 1)
+    //{
+    //    if (cta.get_local_linear_id() < i && cta.get_local_linear_id() + i < cta.get_local_linear_range()){
+    //        sdata[cta.get_local_linear_id()] = Aop(sdata[cta.get_local_linear_id()],sdata[cta.get_local_linear_id() + i]);
+    //    }
+    //    sycl::group_barrier(cta);
+    //}    
+    //T result = sdata[0];
     
-    return result;
+    return sycl::reduce_over_group(cta, val, Aop);
 }
 
 template <ForcefieldType FFT, typename T, typename K>
@@ -1880,61 +1880,66 @@ template <ForcefieldType FFT, typename T = float, typename K = uint16_t>
 void forcefield_optimise(sycl::queue &Q, IsomerBatch<T, K> B, const int iterations, const int max_iterations)
 {
     TEMPLATE_TYPEDEFS(T, K);
-
+    Q.wait_and_throw();
     Q.submit([&](sycl::handler &h)
              {
-        sycl::local_accessor<T,1> sdata(B.n_atoms*2, h);
-        sycl::local_accessor<coord3d,1> X(B.n_atoms,h);
-        sycl::local_accessor<coord3d,1> X1(B.n_atoms,h);
-        sycl::local_accessor<coord3d,1> X2(B.n_atoms,h);
-        
-        h.parallel_for<class optimize>(sycl::nd_range(sycl::range{B.n_atoms*B.isomer_capacity}, sycl::range{B.n_atoms}), [=](sycl::nd_item<1> nditem) {
+        sycl::local_accessor<T,1> sdata(B.N()*2, h);
+        sycl::local_accessor<coord3d,1> X(B.N(),h);
+        sycl::local_accessor<coord3d,1> X1(B.N(),h);
+        sycl::local_accessor<coord3d,1> X2(B.N(),h);
+        sycl::accessor X_acc(B.X, h);
+        sycl::accessor cubic_neighbours_acc(B.cubic_neighbours, h, sycl::read_only);
+        auto N = B.N();
+        h.parallel_for<class optimize>(sycl::nd_range(sycl::range{B.N()*B.capacity()}, sycl::range{B.N()}), [=](sycl::nd_item<1> nditem) {
             auto cta = nditem.get_group();
             auto tid = nditem.get_local_linear_id();
             auto bid = nditem.get_group_linear_id();
-            auto N = B.n_atoms;
 
+//          Create an accessor to the neighbourlist offset by the block id.
 //
-//
-            Constants constants(B, cta);
-            NodeNeighbours nodeG(B, cta);
+            Constants<T,K> constants(cubic_neighbours_acc, cta);
+            NodeNeighbours nodeG(cubic_neighbours_acc, cta);
             
-            X[tid] = reinterpret_cast<coord3d*>(B.X)[bid*N + tid];
+            X[tid] = X_acc[bid*N + tid];
             sycl::group_barrier(cta);
             ForceField FF = ForceField<FFT,T,K>(nodeG, constants, cta, sdata.get_pointer());
             FF.CG(X, X1, X2, iterations);
             sycl::group_barrier(cta);
             //
-            reinterpret_cast<coord3d*>(B.X)[bid*N + tid] = X[tid];
+            X_acc[bid*N + tid] = X[tid];
         }); });
+    Q.wait_and_throw();
 }
 
 int main(int argc, char const *argv[])
-{
-    sycl::queue Q(sycl::gpu_selector{}, sycl::property::queue::in_order());
+{   
+    TEMPLATE_TYPEDEFS(float, uint16_t);
+    sycl::queue Q(gpu_selector_v, sycl::property::queue::in_order());
     /* code */
     int N = 200;
     int isomer_capacity = 6800;
-    IsomerBatch<float, uint16_t> B(N, isomer_capacity, Q);
+    //int N = 20;
+    //int isomer_capacity = 1;
+    IsomerBatch<real_t, node_t> B(N, isomer_capacity);
 
-    // std::initializer_list<float> starting_geom = {3.17414, -6.17984e-08, 7.66306, 7.66306, -6.17984e-08, 3.17415, 6.19955, 4.50423, -3.17415, 2.36802, 7.28801, 3.17415, 0.980864, 3.01879, 7.66306, -2.56794, 1.86571, 7.66306, -2.56794, -1.86571, 7.66306, 0.980864, -3.01879, 7.66306, 2.36801, -7.28801, 3.17415, 6.19955, -4.50424, -3.17415, 2.56794, -1.86572, -7.66306, 2.56794, 1.86571, -7.66306, -0.980864, 3.01879, -7.66306, -2.36802, 7.28801, -3.17415, -6.19955, 4.50424, 3.17415, -7.66306, -6.17984e-08, -3.17415, -6.19955, -4.50423, 3.17415, -2.36802, -7.28801, -3.17415, -0.980864, -3.01879, -7.66306, -3.17414, -6.17984e-08, -7.66306};
-    //std::initializer_list<uint16_t> graph = {4, 7, 1, 0, 9, 2, 1, 11, 3, 2, 13, 4, 3, 5, 0, 4, 14, 6, 5, 16, 7, 6, 8, 0, 7, 17, 9, 8, 10, 1, 9, 18, 11, 10, 12, 2, 11, 19, 13, 12, 14, 3, 13, 15, 5, 14, 19, 16, 15, 17, 6, 16, 18, 8, 17, 19, 10, 18, 15, 12};
+    //std::vector<real_t> starting_geom = {3.17414, -6.17984e-08, 7.66306, 7.66306, -6.17984e-08, 3.17415, 6.19955, 4.50423, -3.17415, 2.36802, 7.28801, 3.17415, 0.980864, 3.01879, 7.66306, -2.56794, 1.86571, 7.66306, -2.56794, -1.86571, 7.66306, 0.980864, -3.01879, 7.66306, 2.36801, -7.28801, 3.17415, 6.19955, -4.50424, -3.17415, 2.56794, -1.86572, -7.66306, 2.56794, 1.86571, -7.66306, -0.980864, 3.01879, -7.66306, -2.36802, 7.28801, -3.17415, -6.19955, 4.50424, 3.17415, -7.66306, -6.17984e-08, -3.17415, -6.19955, -4.50423, 3.17415, -2.36802, -7.28801, -3.17415, -0.980864, -3.01879, -7.66306, -3.17414, -6.17984e-08, -7.66306};
+    //std::vector<node_t> graph = {4, 7, 1, 0, 9, 2, 1, 11, 3, 2, 13, 4, 3, 5, 0, 4, 14, 6, 5, 16, 7, 6, 8, 0, 7, 17, 9, 8, 10, 1, 9, 18, 11, 10, 12, 2, 11, 19, 13, 12, 14, 3, 13, 15, 5, 14, 19, 16, 15, 17, 6, 16, 18, 8, 17, 19, 10, 18, 15, 12};
     // Import starting geometry from file.
     std::ifstream geom_file("starting_geometry.float32");
     std::ifstream graph_file("cubic_graphs.uint16");
-    std::vector<float> starting_geom(B.n_atoms * B.isomer_capacity * 3);
-    std::vector<uint16_t> graph(B.n_atoms * B.isomer_capacity * 3);
-    geom_file.read(reinterpret_cast<char *>(starting_geom.data()), B.n_atoms * B.isomer_capacity * 3 * sizeof(float));
-    graph_file.read(reinterpret_cast<char *>(graph.data()), B.n_atoms * B.isomer_capacity * 3 * sizeof(uint16_t));
-
-    Q.memcpy(B.X, starting_geom.data(), B.n_atoms * B.isomer_capacity * 3 * sizeof(float)).wait_and_throw();
-    Q.memcpy(B.cubic_neighbours, graph.data(), B.n_atoms * B.isomer_capacity * 3 * sizeof(uint16_t)).wait_and_throw();
+    std::vector<coord3d> starting_geom(B.N() * B.capacity());
+    std::vector<node_t> graph(B.N() * B.capacity() * 3);
+    geom_file.read(reinterpret_cast<char *>(starting_geom.data()), B.N() * B.capacity() * sizeof(coord3d));
+    graph_file.read(reinterpret_cast<char *>(graph.data()), B.N() * B.capacity() * sizeof(node3));
+    copy(B.X, (coord3d*)starting_geom.data());
+    copy(B.cubic_neighbours, graph.data());
     forcefield_optimise<PEDERSEN>(Q, B, 3 * N, 3 * N);
     Q.wait_and_throw();
-    std::vector<float> X(B.n_atoms * B.isomer_capacity * 3);
-    float *h_X = sycl::malloc_host<float>(B.n_atoms * B.isomer_capacity * 3, Q);
-    Q.memcpy(h_X, B.X, B.n_atoms * B.isomer_capacity * 3 * sizeof(float)).wait();
-    std::cout << "Input Graph" << std::endl;
+    std::vector<coord3d> X(B.N() * B.capacity());
+    coord3d *h_X = sycl::malloc_host<coord3d>(B.N() * B.capacity() * 3, Q);
+    copy(h_X, B.X);
+    
+
     //for (size_t ii = 0; ii < B.isomer_capacity; ii++){
     //for (size_t i = 0; i < B.n_atoms * 1 * 3; i++)
     //{
@@ -1943,11 +1948,11 @@ int main(int argc, char const *argv[])
     //std::cout << "\n";
     //}
 //
-    //std::cout << "Optimized Geometry: \n";
-    //for (size_t i = 0; i < B.n_atoms * 3; i++)
-    //{
-    //    std::cout << h_X[i] << ", ";
-    //}
+    std::cout << "Optimized Geometry: \n";
+    for (size_t i = 0; i < B.N() * 3; i++)
+    {
+        std::cout << reinterpret_cast<real_t*>(h_X)[i] << ", ";
+    }
     std::cout << "\n";
 
     return 0;

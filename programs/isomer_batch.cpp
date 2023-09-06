@@ -4,7 +4,7 @@
 using std::get;
 
 template<typename T, typename K>
-IsomerBatch<T,K>::IsomerBatch(size_t n_atoms, size_t n_isomers, cl::sycl::queue& Q){
+IsomerBatch<T,K>::IsomerBatch(size_t n_atoms, size_t n_isomers, sycl::queue& Q){
     TEMPLATE_TYPEDEFS(T,K);
     this->n_atoms          = n_atoms;
     this->isomer_capacity  = n_isomers;
@@ -14,13 +14,13 @@ IsomerBatch<T,K>::IsomerBatch(size_t n_atoms, size_t n_isomers, cl::sycl::queue&
     if (!Q.is_host()){
         for (size_t i = 0; i < pointers.size(); i++) {
     //        std::cout << "Allocating " << isomer_capacity * get<2>(pointers[i]) << " bytes of device memory for " << get<0>(pointers[i]) << std::endl;
-            *get<1>(pointers[i]) = cl::sycl::malloc_device(n_isomers * get<2>(pointers[i]), Q); 
+            *get<1>(pointers[i]) = sycl::malloc_device(n_isomers * get<2>(pointers[i]), Q); 
             Q.memset(*get<1>(pointers[i]),0,n_isomers*get<2>(pointers[i]));
         }
     } else if(Q.is_host()){
         for (size_t i = 0; i < pointers.size(); i++) {
             //For asynchronous memory transfers host memory must be pinned.
-            *get<1>(pointers[i]) = cl::sycl::malloc_host(n_isomers * get<2>(pointers[i]), Q); 
+            *get<1>(pointers[i]) = sycl::malloc_host(n_isomers * get<2>(pointers[i]), Q); 
             Q.memset(*get<1>(pointers[i]),0, n_isomers*get<2>(pointers[i]));
         }
     }
@@ -30,11 +30,14 @@ IsomerBatch<T,K>::IsomerBatch(size_t n_atoms, size_t n_isomers, cl::sycl::queue&
 
 template<typename T, typename K>
 void IsomerBatch<T,K>::operator=(const IsomerBatch<T,K>& input){
+    //TODO: Implementation of copy assignment operator for IsomerBatch, not sure exactly how to do this in SYCL.
 
+
+    /* TEMPLATE_TYPEDEFS(T,K);
     pointers =   {{"cubic_neighbours",(void**)&cubic_neighbours, sizeof(node_t)*n_atoms*3, true}, {"dual_neighbours", (void**)&dual_neighbours, sizeof(node_t) * (n_atoms/2 +2) * 6, true}, {"face_degrees", (void**)&face_degrees, sizeof(node_t)*(n_atoms/2 +2), true},{"X", (void**)&X, sizeof(real_t)*n_atoms*3, true}, {"xys", (void**)&xys, sizeof(real_t)*n_atoms*2, true}, {"statuses", (void**)&statuses, sizeof(IsomerStatus), false}, {"IDs", (void**)&IDs, sizeof(size_t), false}, {"iterations", (void**)&iterations, sizeof(size_t), false}};
     if (allocated == true){
         for (size_t i = 0; i < pointers.size(); i++) {
-            cl::sycl::free(*get<1>(pointers[i]), *Q_ptr);
+            sycl::free(*get<1>(pointers[i]), ctx);
         }
         allocated = false;
     }
@@ -48,20 +51,20 @@ void IsomerBatch<T,K>::operator=(const IsomerBatch<T,K>& input){
     //Copy contents of old batch into newly allocated memory.
     if (!Q_ptr->is_host()){
         for (size_t i = 0; i < pointers.size(); i++) {
-            *get<1>(pointers[i]) = cl::sycl::malloc_device(isomer_capacity * get<2>(pointers[i]), *Q_ptr);
+            *get<1>(pointers[i]) = sycl::malloc_device(isomer_capacity * get<2>(pointers[i]), *Q_ptr);
             //cudaMalloc(get<1>(pointers[i]), isomer_capacity * get<2>(pointers[i]));
             Q_ptr -> memcpy(*get<1>(pointers[i]), *get<1>(input.pointers[i]), isomer_capacity * get<2>(pointers[i]));
             //cudaMemcpy(*get<1>(pointers[i]), *get<1>(input.pointers[i]), isomer_capacity * get<2>(pointers[i]), cudaMemcpyDeviceToDevice);
         }
     } else if(Q_ptr->is_host()){
         for (size_t i = 0; i < pointers.size(); i++) {
-            *get<1>(pointers[i]) = cl::sycl::malloc_host(isomer_capacity * get<2>(pointers[i]), *Q_ptr);
+            *get<1>(pointers[i]) = sycl::malloc_host(isomer_capacity * get<2>(pointers[i]), *Q_ptr);
             //cudaMallocHost(get<1>(pointers[i]), isomer_capacity * get<2>(pointers[i]));
             Q_ptr -> memcpy(*get<1>(pointers[i]), *get<1>(input.pointers[i]), isomer_capacity * get<2>(pointers[i]));
 	    //TODO: Isn't this a bug? Nothing is being copied!
         }
     }
-    printLastCudaError("Failed to copy IsomerBatch");
+    printLastCudaError("Failed to copy IsomerBatch"); */
 }
 
 template<typename T, typename K>
@@ -69,7 +72,7 @@ IsomerBatch<T,K>::~IsomerBatch(){
     //if (allocated == true);
     //{
     //    for (size_t i = 0; i < pointers.size(); i++) {
-    //        cl::sycl::free(*get<1>(pointers[i]), ctx);
+    //        sycl::free(*get<1>(pointers[i]), ctx);
     //    }
     //}
     //allocated = false;

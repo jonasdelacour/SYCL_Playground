@@ -13,11 +13,11 @@ int main() {
         });
     });
 
-    program prog(Q.get_context());
-    prog.build_with_kernel_type<class hello_world>("--maxrregcount 40");
-
-    auto work_group_size = prog.get_kernel<class hello_world>().get_work_group_info<info::kernel_work_group::compile_work_group_size>(Q.get_device());
-    std::cout << "Kernel compiled with work-group-size: " << work_group_size[0] << ", " << work_group_size[1] << ", " << work_group_size[2] << "\n";
+    //program prog(Q.get_context());
+    //prog.build_with_kernel_type<class hello_world>("--maxrregcount 40");
+//
+    //auto work_group_size = prog.get_kernel<class hello_world>().get_work_group_info<info::kernel_work_group::compile_work_group_size>(Q.get_device());
+    //std::cout << "Kernel compiled with work-group-size: " << work_group_size[0] << ", " << work_group_size[1] << ", " << work_group_size[2] << "\n";
 
     return 0;
 }

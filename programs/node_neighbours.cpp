@@ -17,9 +17,8 @@ struct NodeNeighbours{
      * @param  sdata: Pointer to shared memory.
      * @return NodeNeighbours object.
      */
-    template <typename T>
-    NodeNeighbours(cl::sycl::group<1> cta, const IsomerBatch<T,K>& G, K* sdata){
-        TEMPLATE_TYPEDEFS(T,K);
+    NodeNeighbours(cl::sycl::group<1> cta, const sycl::accessor<K, 1, access::mode::read>& cubic_neighbours_acc, K* sdata){
+        INT_TYPEDEFS(K);
         face_nodes.fill(UINT16_MAX);
         face_neighbours.fill(UINT16_MAX);
         auto tid = cta.get_local_linear_id();
@@ -27,10 +26,10 @@ struct NodeNeighbours{
         auto bdim = cta.get_local_linear_range();
         node_t* L = reinterpret_cast<node_t*>(sdata); //N x 3 list of potential face IDs.
         node_t* A = reinterpret_cast<node_t*>(sdata) + bdim * 3; //Uses cache temporarily to store face neighbours. //Nf x 6 
-        const DeviceCubicGraph FG(&G.cubic_neighbours[isomer_idx*bdim*3]);
-        this->cubic_neighbours   = {FG.cubic_neighbours[tid*3], FG.cubic_neighbours[tid*3 + 1], FG.cubic_neighbours[tid*3 + 2]};
-        this->next_on_face = {FG.next_on_face(tid, FG.cubic_neighbours[tid*3]), FG.next_on_face(tid, FG.cubic_neighbours[tid*3 + 1]), FG.next_on_face(tid ,FG.cubic_neighbours[tid*3 + 2])};
-        this->prev_on_face = {FG.prev_on_face(tid, FG.cubic_neighbours[tid*3]), FG.prev_on_face(tid, FG.cubic_neighbours[tid*3 + 1]), FG.prev_on_face(tid ,FG.cubic_neighbours[tid*3 + 2])};
+        const DeviceCubicGraph FG(cubic_neighbours_acc, isomer_idx*bdim*3);
+        this->cubic_neighbours   = {FG[tid*3], FG[tid*3 + 1], FG[tid*3 + 2]};
+        this->next_on_face = {FG.next_on_face(tid, cubic_neighbours[tid*3]), FG.next_on_face(tid, cubic_neighbours[tid*3 + 1]), FG.next_on_face(tid ,cubic_neighbours[tid*3 + 2])};
+        this->prev_on_face = {FG.prev_on_face(tid, cubic_neighbours[tid*3]), FG.prev_on_face(tid, cubic_neighbours[tid*3 + 1]), FG.prev_on_face(tid ,cubic_neighbours[tid*3 + 2])};
         int represent_count = 0;
         node2 rep_edges[3] = {{UINT16_MAX, UINT16_MAX}, {UINT16_MAX, UINT16_MAX}, {UINT16_MAX, UINT16_MAX}}; 
         //If a node is representative of the j'th face then the face representation edge will be tid -> cubic_neighbour[j]
@@ -42,7 +41,7 @@ struct NodeNeighbours{
             if(rep_edges[j][0] == tid) {++represent_count; is_rep[j] = true;}
         }
         //ex_scan<node_t>(reinterpret_cast<node_t*>(sdata), represent_count, bdim);
-        auto offset  = sycl::exclusive_scan_over_group(cta, represent_count, sycl::plus<real_t>{});  //reinterpret_cast<node_t*>(sdata)[tid];
+        auto offset  = sycl::exclusive_scan_over_group(cta, represent_count, sycl::plus<node_t>{});  //reinterpret_cast<node_t*>(sdata)[tid];
         int k = 0;
         for(int j = 0; j < 3; j++){
             if(is_rep[j]){
@@ -53,13 +52,13 @@ struct NodeNeighbours{
                 ++k;
             }
         }
-        cta.barrier();
+        sycl::group_barrier(cta);
         face_neighbours = {L[rep_edges[0][0]*3 + edge_idx[0]], L[rep_edges[1][0]*3 + edge_idx[1]], L[rep_edges[2][0]*3 + edge_idx[2]]};
         if(tid < (bdim/2) + 2){
             memcpy(&face_nodes[0], &A[tid*6], sizeof(node_t)*6);
             face_size = face_nodes[5] == UINT16_MAX ? 5 : 6;
         }
-        cta.barrier();
+        sycl::group_barrier(cta);
     }
 /**
 * @brief Constructor for a NodeNeighbours object, which contains the neighbours of a node in the graph and outer neighbours.
@@ -67,14 +66,13 @@ struct NodeNeighbours{
 * @param isomer_idx The index of the isomer to initialize based on.
 */
 
-template <typename T>
-NodeNeighbours(const IsomerBatch<T,K>& G, sycl::group<1>& cta){
+NodeNeighbours(const sycl::accessor<K, 1, access::mode::read>& cubic_neighbours_acc, sycl::group<1>& cta){
         int tid = cta.get_local_linear_id();
         int isomer_idx = cta.get_group_linear_id();
         int blockDim = cta.get_local_linear_range();
-        const DeviceCubicGraph FG(&G.cubic_neighbours[isomer_idx*blockDim*3]);
-        this->cubic_neighbours   = {FG.cubic_neighbours[tid*3], FG.cubic_neighbours[tid*3 + 1], FG.cubic_neighbours[tid*3 + 2]};
-        this->next_on_face = {FG.next_on_face(tid, FG.cubic_neighbours[tid*3]), FG.next_on_face(tid, FG.cubic_neighbours[tid*3 + 1]), FG.next_on_face(tid ,FG.cubic_neighbours[tid*3 + 2])};
-        this->prev_on_face = {FG.prev_on_face(tid, FG.cubic_neighbours[tid*3]), FG.prev_on_face(tid, FG.cubic_neighbours[tid*3 + 1]), FG.prev_on_face(tid ,FG.cubic_neighbours[tid*3 + 2])};
+        const DeviceCubicGraph FG(cubic_neighbours_acc, isomer_idx*blockDim*3);
+        this->cubic_neighbours   = {FG[tid*3], FG[tid*3 + 1], FG[tid*3 + 2]};
+        this->next_on_face = {FG.next_on_face(tid, FG[tid*3]), FG.next_on_face(tid, FG[tid*3 + 1]), FG.next_on_face(tid ,FG[tid*3 + 2])};
+        this->prev_on_face = {FG.prev_on_face(tid, FG[tid*3]), FG.prev_on_face(tid, FG[tid*3 + 1]), FG.prev_on_face(tid ,FG[tid*3 + 2])};
     }
 };

@@ -3,8 +3,14 @@
 template <typename K>
 struct DeviceCubicGraph{
     static_assert(std::is_integral<K>::value, "K must be integral");
-    const K* cubic_neighbours;
-    DeviceCubicGraph(const K* cubic_neighbours) : cubic_neighbours(cubic_neighbours) {}
+    const accessor<K, 1, access::mode::read> cubic_neighbours;
+    const size_t offset;
+
+    inline K operator[](const K i) const{
+        return cubic_neighbours[i + offset];
+    }
+
+    DeviceCubicGraph(const accessor<K, 1, access::mode::read> cubic_neighbours, size_t offset) : cubic_neighbours(cubic_neighbours), offset(offset) {}
 
     /** @brief Find the index of the neighbour v in the list of neighbours of u
     // @param u: source node in the arc (u,v)
@@ -13,7 +19,7 @@ struct DeviceCubicGraph{
     */
     K dedge_ix(const K u, const K v) const{
         for (uint8_t j = 0; j < 3; j++)
-            if (cubic_neighbours[u*3 + j] == v) return j;
+            if ((*this)[u*3 + j] == v) return j;
 
         assert(false);
 	return 0;		// Make compiler happy
@@ -26,7 +32,7 @@ struct DeviceCubicGraph{
     */
     K next(const K u, const K v) const{
         K j = dedge_ix(u,v);
-        return cubic_neighbours[u*3 + ((j+1)%3)];
+        return (*this)[u*3 + ((j+1)%3)];
     }
     
     /** @brief Find the previous neighbour in the clockwise order around u
@@ -36,7 +42,7 @@ struct DeviceCubicGraph{
     */
     K prev(const K u, const K v) const{
         K j = dedge_ix(u,v);
-        return cubic_neighbours[u*3 + ((j+2)%3)];
+        return (*this)[u*3 + ((j+2)%3)];
     }
     
     /** @brief Find the next node in the face represented by the arc (u,v)

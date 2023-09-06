@@ -40,14 +40,14 @@ struct Constants{
      * @param isomer_idx The index of the isomer that the current thread is a part of
      * @return Forcefield constants for the current node in the isomer_idx^th isomer in G
      */
-    inline Constants(const IsomerBatch<T,K>& G, sycl::group<1>& cta){
+    inline Constants(const accessor<K, 1, access::mode::read> cubic_neighbours, sycl::group<1>& cta){
 
-        constexpr float optimal_corner_cos_angles[2] = {-0.30901699437494734, -0.5}; 
-        constexpr float optimal_bond_lengths[3] = {1.479, 1.458, 1.401}; 
-        constexpr float optimal_dih_cos_angles[8] = {0.7946545571495363, 0.872903607049519, 0.872903607049519, 0.9410338472965512, 0.8162879359966257, 0.9139497166300941, 0.9139497166300941, 1.}; 
-        constexpr float angle_forces[2] = {100.0,100.0}; 
-        constexpr float bond_forces[3] = {260.0,390.0,450.0}; 
-        constexpr float dih_forces[4] = {35.0,65.0,85.0,270.0}; 
+        constexpr real_t optimal_corner_cos_angles[2] = {-0.30901699437494734, -0.5}; 
+        constexpr real_t optimal_bond_lengths[3] = {1.479, 1.458, 1.401}; 
+        constexpr real_t optimal_dih_cos_angles[8] = {0.7946545571495363, 0.872903607049519, 0.872903607049519, 0.9410338472965512, 0.8162879359966257, 0.9139497166300941, 0.9139497166300941, 1.}; 
+        constexpr real_t angle_forces[2] = {100.0,100.0}; 
+        constexpr real_t bond_forces[3] = {260.0,390.0,450.0}; 
+        constexpr real_t dih_forces[4] = {35.0,65.0,85.0,270.0}; 
         //constexpr float flat_forces[3] = {0., 0., 0.};
         //Set pointers to start of fullerene.
         auto isomer_idx = cta.get_group_linear_id();
@@ -59,8 +59,8 @@ struct Constants{
         };
 
 
-        const DeviceCubicGraph<K> FG(&G.cubic_neighbours[isomer_idx*N*3]);
-        node3 cubic_neighbours = {FG.cubic_neighbours[tid*3], FG.cubic_neighbours[tid*3 + 1], FG.cubic_neighbours[tid*3 + 2]};
+        const DeviceCubicGraph<K> FG(cubic_neighbours, isomer_idx*N*3);
+        node3 neighbours = {FG[tid*3], FG[tid*3 + 1], FG[tid*3 + 2]};
         //       m    p
         //    f5_|   |_f4
         //   p   c    b  m
@@ -74,14 +74,14 @@ struct Constants{
         for (int j = 0; j < 3; j++) {
             //Faces to the right of arcs ab, ac and ad.
             
-            int F1 = FG.face_size(tid, cubic_neighbours[j]) - 5;
-            int F2 = FG.face_size(tid, cubic_neighbours[(j+1)%3]) -5;
-            int F3 = FG.face_size(tid, cubic_neighbours[(j+2)%3]) -5;
+            int F1 = FG.face_size(tid, neighbours[j]) - 5;
+            int F2 = FG.face_size(tid, neighbours[(j+1)%3]) -5;
+            int F3 = FG.face_size(tid, neighbours[(j+2)%3]) -5;
             
             //The faces to the right of the arcs ab, bm and bp in no particular order, from this we can deduce F4.
-            int neighbour_F1 = FG.face_size(cubic_neighbours[j], FG.cubic_neighbours[cubic_neighbours[j]*3] ) -    5;
-            int neighbour_F2 = FG.face_size(cubic_neighbours[j], FG.cubic_neighbours[cubic_neighbours[j]*3 + 1] ) -5;
-            int neighbour_F3 = FG.face_size(cubic_neighbours[j], FG.cubic_neighbours[cubic_neighbours[j]*3 + 2] ) -5;
+            int neighbour_F1 = FG.face_size(neighbours[j], FG[neighbours[j]*3] ) -    5;
+            int neighbour_F2 = FG.face_size(neighbours[j], FG[neighbours[j]*3 + 1] ) -5;
+            int neighbour_F3 = FG.face_size(neighbours[j], FG[neighbours[j]*3 + 2] ) -5;
 
             int F4 = (neighbour_F1 + neighbour_F2 + neighbour_F3 - F1 - F3) ;
             
